@@ -1,0 +1,102 @@
+-- [[ 1. SYSTEM FOUNDATION ]] --
+if not game:IsLoaded() then game.Loaded:Wait() end
+local LP = game:GetService("Players").LocalPlayer
+local RS = game:GetService("RunService")
+local TP = game:GetService("TeleportService")
+
+-- [[ 2. CONFIGURATION ]] --
+_G.GodSpeed = 10000 
+_G.HoverHeight = 7.5
+_G.MaxBondPerMatch = 85 -- Ambil segini terus ganti map
+
+-- [[ 3. BYPASS & FLOATING ]] --
+task.spawn(function()
+    RS.Stepped:Connect(function()
+        if LP.Character then
+            for _, v in pairs(LP.Character:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and not hrp:FindFirstChild("HoverForce") then
+                local bf = Instance.new("BodyForce", hrp)
+                bf.Name = "HoverForce"
+                bf.Force = Vector3.new(0, workspace.Gravity * hrp:GetMass(), 0)
+            end
+        end
+    end)
+end)
+
+-- [[ 4. GHOST SPEED ENGINE ]] --
+local function FastMove(targetPos)
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local dist = (targetPos - hrp.Position).Magnitude
+    local steps = math.max(1, dist / (_G.GodSpeed / 60))
+    for i = 1, steps do
+        local nextPos = hrp.Position:Lerp(targetPos, i/steps)
+        hrp.CFrame = CFrame.new(nextPos.X, nextPos.Y + _G.HoverHeight, nextPos.Z)
+        RS.Heartbeat:Wait()
+    end
+end
+
+-- [[ 5. THE RE-MATCH LOGIC (ANTI-WAIT) ]] --
+local currentBonds = 0
+
+local function ResetAndNewMatch()
+    print("Match Selesai, Balik ke Lobby buat bikin Map Baru...")
+    -- Balik ke Lobby (Place Utama)
+    TP:Teleport(game.PlaceId, LP) 
+end
+
+-- [[ 6. MAIN AUTO-PILOT ]] --
+task.spawn(function()
+    while task.wait(0.5) do
+        pcall(function()
+            local char = LP.Character or LP.CharacterAdded:Wait()
+            local hrp = char:WaitForChild("HumanoidRootPart")
+            
+            -- Scan Bond di Map lu sendiri
+            local target = nil
+            local count = 0
+            for _, b in pairs(workspace:GetDescendants()) do
+                if b.Name == "Bond" then
+                    count = count + 1
+                    target = b
+                end
+            end
+            
+            -- JIKA LIMIT TERCAPAI ATAU MAP KERING
+            if (count == 0 and currentBonds > 0) or currentBonds >= _G.MaxBondPerMatch then
+                ResetAndNewMatch()
+                task.wait(10)
+            end
+
+            if target then
+                FastMove(target.Position)
+                local id = target:GetAttribute("ID")
+                if id then
+                    game:GetService("ReplicatedStorage").Shared.Universe.Network.RemoteEvent.Actionable:FireServer(id)
+                    currentBonds = currentBonds + 1
+                end
+            else
+                -- OTOMATIS BIKIN MAP (Pas lu di Lobby)
+                -- Script ini bakal nyoba nembak remote create terus sampe lu masuk match
+                game:GetService("ReplicatedStorage").Shared.Universe.Network.RemoteEvent.CreateGame:FireServer()
+                
+                -- Tween ke tempat tombol "Buat" kalau di Lobby
+                local cp = workspace:FindFirstChild("CreateGame") or workspace:FindFirstChild("BuildPlatform")
+                if cp and (cp.Position - hrp.Position).Magnitude > 20 then
+                    FastMove(cp.Position)
+                end
+            end
+        end)
+    end
+end)
+
+-- [[ 7. ANTI-AFK ]] --
+LP.Idled:Connect(function()
+    game:GetService("VirtualUser"):CaptureController()
+    game:GetService("VirtualUser"):ClickButton2(Vector2.new(0,0))
+end)
+
+print("V8 HOST MASTER ACTIVE: AUTO CREATE -> FARM -> RESET.")
